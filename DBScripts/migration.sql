@@ -4,34 +4,49 @@ drop table if exists equipment_type cascade;
 drop table if exists parameters cascade;
 drop table if exists ranks cascade;
 
+-- Типы оборудования
 
 create table equipment_type(
 	id int generated always as identity primary key,
 	equipment_name text
 );
 
+comment on table equipment_type is 'Таблица видов снаряжения';
+comment on column equipment_type.id is 'Id снаряжения';
+comment on column equipment_type.equipment_name is 'Имя снаряжения';
+
 insert into equipment_type (equipment_name) 
 values ('ДМК'), ('ВР');
 
+-- Пользователи
 
 create table users(
     id int generated always as identity primary key,
 	full_name text not null
 );
 
+comment on table users is 'Таблица пользователей';
+comment on column users.id is 'Id пользователя';
+comment on column users.full_name is 'Полное имя пользователя';
+
 insert into users (full_name)
 values ('Михаил Вареников Никитич'), ('Максим Болотов Владимирович'),
 ('Владимир Громов Андреевич'), ('Алексей Королев Дмитриевич');
 
-
+-- Должности
 
 create table ranks(
 	id int generated always as identity primary key,
 	rank_name text
 );
 
+comment on table ranks is 'Таблица рангов/должностей';
+comment on column ranks.id is 'Id должности';
+comment on column ranks.rank_name is 'Название должности';
+
 insert into ranks (rank_name) values ('младший Лейтенант'), ('Рядовой'), ('Генерал'), ('Майор');
 
+-- Параметры
 
 create table parameters (
     id int generated always as identity primary key,
@@ -43,8 +58,19 @@ create table parameters (
 	bullet_drift int default 0
 );
 
+comment on table parameters is 'Таблица параметров';
+comment on column parameters.id is 'Id измерения параметров';
+comment on column parameters.weather_station_height is 'Высота метеостанции';
+comment on column parameters.temperature is 'Температура';
+comment on column parameters.pressure is 'Давление';
+comment on column parameters.wind_direction is 'Направление ветра';
+comment on column parameters.wind_speed is 'Скорость ветра';
+comment on column parameters.bullet_drift is 'Дальность сноса пуль';
+
 insert into parameters (weather_station_height, pressure, wind_speed)
 values (1233, 747, 12), (133, 767, 18), (1453, 720, 33), (443, 757, 22);
+
+-- Пачки
 
 create table packages (
     id int generated always as identity primary key,
@@ -55,4 +81,10 @@ create table packages (
 );
 
 insert into packages(user_id, parameter_id, equipment_id) values
-(1, 1, 1), (2, 2, 2), (3, 3, 3);
+(1, 1, 1), (2, 2, 2), (3, 3, 2);
+
+comment on table packages is 'Таблица пакетов(логов) измерений';
+comment on column packages.id is 'Id пакета измерений';
+comment on column packages.user_id is 'Id пользователя выполнившего измерения';
+comment on column packages.equipment_id is 'Id использованного оборудования';
+comment on column packages.date is 'Дата и время измерений';
