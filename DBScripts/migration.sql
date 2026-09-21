@@ -81,10 +81,29 @@ create table packages (
 );
 
 insert into packages(user_id, parameter_id, equipment_id) values
-(1, 1, 1), (2, 2, 2), (3, 3, 2);
+(1, 1, 1), (2, 2, 1), (3, 3, 1), (4, 4, 1);
 
 comment on table packages is 'Таблица пакетов(логов) измерений';
 comment on column packages.id is 'Id пакета измерений';
 comment on column packages.user_id is 'Id пользователя выполнившего измерения';
 comment on column packages.equipment_id is 'Id использованного оборудования';
 comment on column packages.date is 'Дата и время измерений';
+
+-- Вывод объеденённой таблицы
+
+select
+    p.id as package_id,
+    p.date as measurement_date,
+    u.full_name,
+    e.equipment_name,
+    par.weather_station_height,
+    par.temperature,
+    par.pressure,
+    par.wind_direction,
+    par.wind_speed,
+    par.bullet_drift
+from packages p
+join users u on u.id = p.user_id
+join parameters par on par.id = p.parameter_id
+join equipment_type e on e.id = p.equipment_id
+order by p.id;
