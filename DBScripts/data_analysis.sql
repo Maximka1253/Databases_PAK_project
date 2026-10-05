@@ -11,37 +11,30 @@ select
     max(pk.date) as "Последнее измерение"
 from users u
 left join packages pk on pk.user_id = u.id
-left join parameters p on p.package_id = pk.id
+left join parameters p on p.packadge_id = pk.id
 group by u.id, u.full_name
 order by count(distinct pk.id) desc, u.id;
 
--- Поровну ли пачек и значений у всех пользователей
-
-select
-    min(t.packages_count) as "Минимум пачек",
-    max(t.packages_count) as "Максимум пачек",
-    min(t.values_count) as "Минимум значений",
-    max(t.values_count) as "Максимум значений"
-from (
-    select u.id, count(distinct pk.id) as packages_count, count(p.id) as values_count
-    from users u
-    left join packages pk on pk.user_id = u.id
-    left join parameters p on p.package_id = pk.id
-    group by u.id
-) t;
 
 -- 2. Есть ли пустые пачки
 
--- Сколько всего пачек и сколько из них пустых
+-- Пустые пачки
 
 select
-    (select count(*) from packages) as "Всего пачек",
-    (select count(*)
-     from packages pk
-     where not exists (
-        select 1 from parameters p
-        where p.package_id = pk.id and p.value is not null
-     )) as "Пустых пачек";
+    pk.id as "Номер пачки",
+    pk.date as "Дата измерения",
+    u.full_name as "ФИО сотрудника",
+    e.equipment_name as "Оборудование",
+    count(p.id) as "Строк в parameters",
+    count(p.value) as "Заполненных значений"
+from packages pk
+left join parameters p on p.package_id = pk.id
+left join users u on u.id = pk.user_id
+left join equipment_type e on e.id = pk.equipment_id
+group by pk.id, pk.date, u.full_name, e.equipment_name
+having count(p.value) = 0
+order by pk.id;
+
 
 
 -- 3. Полнота пачек: в каждой пачке должно быть 5 параметров (какие именно - зависит от оборудования)
