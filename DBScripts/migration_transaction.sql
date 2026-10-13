@@ -169,6 +169,7 @@ begin
 
     commit;
 
+	begin
     -- Вставка справочников
 
     -- Типы оборудования
@@ -236,6 +237,7 @@ begin
 
     commit;
 
+	begin
     -- Тестовые данные
 
     insert into users (full_name, rank_id) values
