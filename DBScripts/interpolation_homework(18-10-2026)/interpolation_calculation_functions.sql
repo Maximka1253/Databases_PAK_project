@@ -16,6 +16,13 @@ begin
     ALTER TYPE public.interpolation_params
         OWNER TO postgres;
 
+    comment on type interpolation_params is 'Параметры для интерполяции (4 опорные точки)';
+	comment on column interpolation_params.x0 is 'Левая опорная точка';
+	comment on column interpolation_params.y0 is 'Значение левой опорной точки';
+	comment on column interpolation_params.x1 is 'Правая опорная точка';
+	comment on column interpolation_params.y1 is 'Значение правой опорной точки';
+
+    -- Функция получения значений для расчета интерполяции
 
     CREATE OR REPLACE FUNCTION public.get_interpolation_params(IN temperature numeric)
         RETURNS interpolation_params
@@ -63,6 +70,9 @@ begin
     ALTER FUNCTION public.get_interpolation_params(numeric)
         OWNER TO postgres;
 
+    comment on function get_interpolation_params is 'Функция для нахождения параметрова интерполяции (опорных точек)';
+    
+    -- Функция расчета интерполяции
 
     CREATE OR REPLACE FUNCTION public.calculate_interpolation(IN t numeric, IN params interpolation_params)
         RETURNS numeric
@@ -88,4 +98,6 @@ begin
 
     ALTER FUNCTION public.calculate_interpolation(numeric, interpolation_params)
         OWNER TO postgres;
+
+    comment on function calculate_interpolation is 'Функция для расчета интерполяции';
 end $$;
