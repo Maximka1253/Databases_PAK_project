@@ -247,11 +247,11 @@ begin
     end;
     $body$;
 
-    -- Отчёт «Лучший стрелок»: пользователи, сгруппированные по количеству ошибок.
+    -- Отчёт «Лучший стрелок»: пользователи и количество ошибок в параметрах.
     create or replace function get_best_shooters()
     returns table (
-        "Количество ошибок" int,
-        "Пользователи" text
+        "Пользователь" text,
+        "Количество ошибок" int
     )
     language plpgsql
 
@@ -280,24 +280,17 @@ begin
                         )::parameter_list
                     ) as error_text
                 from packages pk
-            ),
-            user_errors as (
-                select
-                    u.full_name,
-                    coalesce(sum(regexp_count(pe.error_text, ';')), 0)::int as error_count
-                from users u
-                left join package_errors pe on pe.user_id = u.id
-                group by u.id, u.full_name
             )
             select
-                ue.error_count,
-                string_agg(ue.full_name, ', ' order by ue.full_name) as users
-            from user_errors ue
-            group by ue.error_count
-            order by ue.error_count
+                u.full_name,
+                coalesce(sum(regexp_count(pe.error_text, ';')), 0)::int as error_count
+            from users u
+            left join package_errors pe on pe.user_id = u.id
+            group by u.id, u.full_name
+            order by 2, u.full_name
         loop
+            "Пользователь" := r.full_name;
             "Количество ошибок" := r.error_count;
-            "Пользователи" := r.users;
             return next;
         end loop;
 

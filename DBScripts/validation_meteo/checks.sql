@@ -7,6 +7,7 @@ where "Флаг: Есть ошибка";
 
 -- Лучший стрелок: пользователи и количество допущенных ошибок.
 select *
-from get_best_shooters();
+from get_best_shooters()
+order by "Количество ошибок" desc;
 
 commit;
