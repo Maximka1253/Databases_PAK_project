@@ -164,6 +164,49 @@ begin
     $body$;
 
     -- Список параметров с ошибками.
+    create or replace function get_best_shooters()
+    returns table (
+        "Пользователь" text,
+        "Количество ошибок" int
+    )
+    language plpgsql
+    as $body$
+    begin
+        return query
+        with errors as (
+            -- параметр есть в пакете, но с ошибкой (одна строка = одна ошибка)
+            select p.package_id
+            from parameters p
+            join packages pk on pk.id = p.package_id
+            left join parameter_limits pl
+                on pl.equipment_id = pk.equipment_id
+                and pl.parameter_type_id = p.parameter_type_id
+            where pl.parameter_type_id is null  -- недопустим для оборудования
+            or p.value <> round(p.value, pl.value_scale)  -- неверное число знаков
+            or p.value < pl.min_value or p.value > pl.max_value  -- вне диапазона
+
+            union all
+
+            -- обязательного параметра в пакете нет
+            select pk.id
+            from packages pk
+            join parameter_limits pl on pl.equipment_id = pk.equipment_id
+            where not exists (
+                select 1
+                from parameters p
+                where p.package_id = pk.id
+                and p.parameter_type_id = pl.parameter_type_id
+            )
+        )
+        select u.full_name, count(e.package_id)::int
+        from users u
+        left join packages pk on pk.user_id = u.id
+        left join errors e on e.package_id = pk.id
+        group by u.id, u.full_name
+        order by 2, u.full_name;
+    end;
+    $body$;
+
     create or replace function get_parameter_errors()
     returns table (
         "№" int,
@@ -178,123 +221,86 @@ begin
         "Описание ошибки" text
     )
     language plpgsql
-
     as $body$
-    declare
-        r record;
     begin
-        for r in
-            with package_params as (
-                select
-                    pk.id,
-                    pk.equipment_id,
-                    et.equipment_name,
-                    max(p.value) filter (where pt.code = 'weather_station_height') as weather_station_height,
-                    max(p.value) filter (where pt.code = 'temperature') as temperature,
-                    max(p.value) filter (where pt.code = 'pressure') as pressure,
-                    max(p.value) filter (where pt.code = 'wind_direction') as wind_direction,
-                    max(p.value) filter (where pt.code = 'wind_speed') as wind_speed,
-                    max(p.value) filter (where pt.code = 'bullet_drift') as bullet_drift,
-                    coalesce(
-                        array_agg(
-                            row(p.parameter_type_id, p.value)::parameter_value
-                            order by p.id
-                        ) filter (where p.id is not null),
-                        array[]::parameter_value[]
-                    ) as parameter_values
-                from packages pk
-                join equipment_type et on et.id = pk.equipment_id
-                left join parameters p on p.package_id = pk.id
-                left join parameter_types pt on pt.id = p.parameter_type_id
-                group by pk.id, pk.equipment_id, et.equipment_name
-            ),
-            checked as (
-                select
-                    pp.*,
-                    validate_parameters(
-                        row(pp.equipment_id, pp.parameter_values)::parameter_list
-                    ) as error_text
-                from package_params pp
-            )
+        return query
+        with checked as (
+            -- параметры, которые есть в пакете
             select
-                c.id,
-                c.equipment_name,
-                c.weather_station_height,
-                c.temperature,
-                c.pressure,
-                c.wind_direction,
-                c.wind_speed,
-                c.bullet_drift,
-                c.error_text is not null as has_error,
-                c.error_text
+                p.package_id,
+                p.parameter_type_id,
+                pt.name as parameter_name,
+                p.value,
+                case
+                    when pl.parameter_type_id is null then 'forbidden'
+                    when p.value <> round(p.value, pl.value_scale) then 'invalid_scale'
+                    when p.value < pl.min_value or p.value > pl.max_value then 'out_of_range'
+                end as error_code  -- null - ошибки нет
+            from parameters p
+            join packages pk on pk.id = p.package_id
+            join parameter_types pt on pt.id = p.parameter_type_id
+            left join parameter_limits pl
+                on pl.equipment_id = pk.equipment_id
+                and pl.parameter_type_id = p.parameter_type_id
+
+            union all
+
+        -- обязательные параметры, которых в пакете нет
+            select pk.id, pl.parameter_type_id, pt.name, null, 'missing'
+            from packages pk
+            join parameter_limits pl on pl.equipment_id = pk.equipment_id
+            join parameter_types pt on pt.id = pl.parameter_type_id
+            where not exists (
+                select 1
+                from parameters p
+                where p.package_id = pk.id
+                and p.parameter_type_id = pl.parameter_type_id
+            )
+        ),
+        errors as (
+            select
+                c.package_id,
+                string_agg(
+                    t.description || ': ' ||
+                    case when c.error_code in ('invalid_scale', 'out_of_range')
+                        then format('"%s" = %s', c.parameter_name, c.value)
+                        else format('"%s"', c.parameter_name)
+                    end,
+                    '; ' order by c.parameter_type_id
+                ) as error_text
             from checked c
-            order by c.id
-        loop
-            "№" := r.id;
-            "Тип оборудования" := r.equipment_name;
-            "Высота метеопоста" := r.weather_station_height;
-            "Температура" := r.temperature;
-            "Давление" := r.pressure;
-            "Направление ветра" := r.wind_direction;
-            "Скорость ветра" := r.wind_speed;
-            "Дальность сноса пуль" := r.bullet_drift;
-            "Флаг: Есть ошибка" := r.has_error;
-            "Описание ошибки" := r.error_text;
-            return next;
-        end loop;
-
-        return;
-    end;
-    $body$;
-
-    -- Отчёт «Лучший стрелок»: пользователи и количество ошибок в параметрах.
-    create or replace function get_best_shooters()
-    returns table (
-        "Пользователь" text,
-        "Количество ошибок" int
-    )
-    language plpgsql
-
-    as $body$
-    declare
-        r record;
-    begin
-        for r in
-            with package_errors as (
-                select
-                    pk.user_id,
-                    validate_parameters(
-                        row(
-                            pk.equipment_id,
-                            coalesce(
-                                (
-                                    select array_agg(
-                                        row(p.parameter_type_id, p.value)::parameter_value
-                                        order by p.id
-                                    )
-                                    from parameters p
-                                    where p.package_id = pk.id
-                                ),
-                                array[]::parameter_value[]
-                            )
-                        )::parameter_list
-                    ) as error_text
-                from packages pk
-            )
+            join parameter_error_types t on t.code = c.error_code
+            group by c.package_id
+        ),
+        pivoted as (
             select
-                u.full_name,
-                coalesce(sum(regexp_count(pe.error_text, ';')), 0)::int as error_count
-            from users u
-            left join package_errors pe on pe.user_id = u.id
-            group by u.id, u.full_name
-            order by 2, u.full_name
-        loop
-            "Пользователь" := r.full_name;
-            "Количество ошибок" := r.error_count;
-            return next;
-        end loop;
-
-        return;
+                p.package_id,
+                max(p.value) filter (where pt.code = 'weather_station_height') as weather_station_height,
+                max(p.value) filter (where pt.code = 'temperature') as temperature,
+                max(p.value) filter (where pt.code = 'pressure') as pressure,
+                max(p.value) filter (where pt.code = 'wind_direction') as wind_direction,
+                max(p.value) filter (where pt.code = 'wind_speed') as wind_speed,
+                max(p.value) filter (where pt.code = 'bullet_drift') as bullet_drift
+            from parameters p
+            join parameter_types pt on pt.id = p.parameter_type_id
+            group by p.package_id
+        )
+        select
+            pk.id,
+            et.equipment_name,
+            v.weather_station_height,
+            v.temperature,
+            v.pressure,
+            v.wind_direction,
+            v.wind_speed,
+            v.bullet_drift,
+            e.error_text is not null,
+            e.error_text
+        from packages pk
+        join equipment_type et on et.id = pk.equipment_id
+        left join pivoted v on v.package_id = pk.id
+        left join errors e on e.package_id = pk.id
+        order by pk.id;
     end;
     $body$;
 
