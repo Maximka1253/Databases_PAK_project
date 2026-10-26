@@ -77,89 +77,63 @@ begin
     -- Проверка списка параметров
     create or replace function validate_parameters(p_params parameter_list)
     returns text
-    language plpgsql
-
+    language plpgsql stable
     as $body$
-    declare
-        v_errors text := '';
-        v_param parameter_value;
-        v_name text;
-        v_limit parameter_limits%rowtype;
     begin
+        -- Если неизвестное оборудование проверка дальше не нужна
         if not exists (select 1 from equipment_type where id = p_params.equipment_id) then
-            return (
-                select description
-                from parameter_error_types
-                where code = 'unknown_equipment'
-            ) || '; ';
+            return (select description from parameter_error_types where code = 'unknown_equipment');
         end if;
-        -- Основной цикл проверки
-        foreach v_param in array coalesce(p_params.parameter_values, array[]::parameter_value[])
-        loop
-            select name into v_name
-            from parameter_types
-            where id = v_param.parameter_type_id;
 
-            select * into v_limit
-            from parameter_limits
-            where equipment_id = p_params.equipment_id
-            and parameter_type_id = v_param.parameter_type_id;
+        return (
+            with checked as (
+                -- параметры, которые переданы в списке
+                select
+                    v.parameter_type_id,
+                    pt.name as parameter_name,
+                    v.value,
+                    case
+                        when pt.id is null then 'unknown_parameter'
+                        when pl.parameter_type_id is null then 'forbidden'
+                        when v.value is null then 'missing'
+                        when v.value <> round(v.value, pl.value_scale) then 'invalid_scale'
+                        when v.value < pl.min_value or v.value > pl.max_value then 'out_of_range'
+                    end as error_code  -- null = ошибки нет
+                from unnest(p_params.parameter_values) v  -- превращаем массив в строки таблицы через unnest
+                left join parameter_types pt on pt.id = v.parameter_type_id
+                left join parameter_limits pl
+                    on pl.equipment_id = p_params.equipment_id
+                    and pl.parameter_type_id = v.parameter_type_id
 
-            if v_name is null then
-                v_errors := v_errors || format(
-                    '%s: id=%s; ',
-                    (select description from parameter_error_types where code = 'unknown_parameter'),
-                    v_param.parameter_type_id
-                );
-            elsif not found then
-                v_errors := v_errors || format(
-                    '%s: "%s"; ',
-                    (select description from parameter_error_types where code = 'forbidden'),
-                    v_name
-                );
-            elsif v_param.value is null then
-                v_errors := v_errors || format(
-                    '%s: "%s"; ',
-                    (select description from parameter_error_types where code = 'missing'),
-                    v_name
-                );
-            elsif v_param.value <> round(v_param.value, v_limit.value_scale) then
-                v_errors := v_errors || format(
-                    '%s: "%s" = %s; ',
-                    (select description from parameter_error_types where code = 'invalid_scale'),
-                    v_name,
-                    v_param.value
-                );
-            elsif (v_limit.min_value is not null and v_param.value < v_limit.min_value)
-            or (v_limit.max_value is not null and v_param.value > v_limit.max_value) then
-                v_errors := v_errors || format(
-                    '%s: "%s" = %s; ',
-                    (select description from parameter_error_types where code = 'out_of_range'),
-                    v_name,
-                    v_param.value
-                );
-            end if;
-        end loop;
+                union all
 
-        for v_name in
-            select pt.name
-            from parameter_limits pl
-            join parameter_types pt on pt.id = pl.parameter_type_id
-            where pl.equipment_id = p_params.equipment_id
-            and not exists (
-                select 1
-                from unnest(coalesce(p_params.parameter_values, array[]::parameter_value[])) pv
-                where pv.parameter_type_id = pl.parameter_type_id
+                -- обязательные параметры, которых в списке нет
+                select pl.parameter_type_id, pt.name, null, 'missing'
+                from parameter_limits pl
+                join parameter_types pt on pt.id = pl.parameter_type_id
+                where pl.equipment_id = p_params.equipment_id
+                and not exists (
+                    select 1
+                    from unnest(p_params.parameter_values) v
+                    where v.parameter_type_id = pl.parameter_type_id
+                )
             )
-        loop
-            v_errors := v_errors || format(
-                '%s: "%s"; ',
-                (select description from parameter_error_types where code = 'missing'),
-                v_name
-            );
-        end loop;
-
-        return nullif(v_errors, '');
+            -- inner join отбрасывает строки без ошибки
+            -- если ошибок нет string_agg вернёт null
+            select string_agg(
+                t.description || ': ' ||
+                case
+                    when c.error_code = 'unknown_parameter'
+                        then format('id=%s', c.parameter_type_id)
+                    when c.error_code in ('invalid_scale', 'out_of_range')
+                        then format('"%s" = %s', c.parameter_name, c.value)
+                    else format('"%s"', c.parameter_name)
+                end,
+                '; ' order by c.parameter_type_id
+            )
+            from checked c
+            join parameter_error_types t on t.code = c.error_code
+        );
     end;
     $body$;
 
