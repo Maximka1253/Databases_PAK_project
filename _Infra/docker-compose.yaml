@@ -33,6 +33,21 @@ services:
     depends_on:
     - postgres
 
+  mssql2017:
+    image: mcr.microsoft.com/mssql/server:2017-latest
+    container_name: mssql2017
+    hostname: mssql
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: ${MSSQL_PASS}
+      MSSQL_SA_PASSWORD: ${MSSQL_PASS}
+    ports:
+      - "1433:1433"
+    volumes:
+      - ./mssql-data:/var/opt/mssql/data
+      - ./backup:/backup
+    restart: always
+
 networks:
   pgdata:
 
