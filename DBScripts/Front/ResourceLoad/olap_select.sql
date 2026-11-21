@@ -1,12 +1,13 @@
 use Front;
 
 -- Ед измерения
-select 'insert into dim_ranges(id, name, factor) values ('
-    + cast(id as varchar(max)) + ','''   
-    + [sizeid] + ''','  
-    + caST(portionrate as varchar(max)) + ');' 
+select 'insert into dim_ranges(id, group_id, short_name, description) values ('
+    + cast(ID as varchar(max)) + ','
+    + cast(GroupID as varchar(max)) + ','''
+    + [ShortName] + ''','''
+    + [Description] + ''');' 
     as [sql]
- from [size]
+ from [bm_classifierSizes]
 
 -- Категории если = 0 то ставим null чтобы не было ошибок при вставке
 
